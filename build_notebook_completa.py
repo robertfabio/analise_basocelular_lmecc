@@ -751,14 +751,167 @@ code(r"""analisa("E","E7","subtipo_3cat","ulceracao",
         "Subtipo × Ulceração", "E7_subtipo_x_ulceracao.png",
         ordem_lin=ORDEM_SUB, ordem_col=["Não","Sim"])""")
 
+# =================================================================== Bloco F — tamanho
+md(r"""## 13. Bloco F — Tamanho da lesão: descritivo global e associações
+
+Esta seção concentra a análise do tamanho da lesão (em cm): estatísticas
+gerais e cruzamentos com ulceração, margens comprometidas, invasão perineural
+e região anatômica (identificando o local mais acometido).""")
+
+md("### 13.1. Descritivo geral do tamanho da lesão")
+code(r"""tam = df_lesao["tamanho_cm"].dropna()
+desc = tam.describe()[["count","mean","std","min","25%","50%","75%","max"]]
+desc.index = ["n","média","desvio","mínimo","q1","mediana","q3","máximo"]
+print(desc.round(2))
+
+fig, axes = plt.subplots(1, 2, figsize=(11, 4))
+sns.histplot(tam, bins=25, kde=True, ax=axes[0], color="#4C72B0")
+axes[0].axvline(tam.mean(), color="red", ls="--", label=f"média {tam.mean():.2f} cm")
+axes[0].axvline(tam.median(), color="green", ls=":", label=f"mediana {tam.median():.2f} cm")
+axes[0].set(title="Distribuição do tamanho da lesão",
+            xlabel="Tamanho (cm)", ylabel="Lesões")
+axes[0].legend()
+sns.boxplot(x=tam, ax=axes[1], color="#55A868")
+axes[1].set(title="Boxplot do tamanho", xlabel="Tamanho (cm)")
+plt.tight_layout(); salvar_fig("F0_tamanho_geral.png"); plt.show()""")
+
+md("### 13.2. Tamanho × Ulceração")
+code(r"""analisa("F","F1","ulceracao","tamanho_cm",
+        "Tamanho da lesão × Ulceração", "F1_tamanho_x_ulceracao.png",
+        ordem_lin=["Não","Sim"], continua=True)""")
+
+md("### 13.3. Tamanho × Margens comprometidas")
+code(r"""analisa("F","F2","margem_comprometida","tamanho_cm",
+        "Tamanho da lesão × Margens comprometidas",
+        "F2_tamanho_x_margens.png",
+        ordem_lin=["Livre","Comprometida"], continua=True)""")
+
+md("### 13.4. Tamanho × Invasão perineural")
+code(r"""analisa("F","F3","inv_perineural","tamanho_cm",
+        "Tamanho da lesão × Invasão perineural",
+        "F3_tamanho_x_perineural.png",
+        ordem_lin=["Não","Sim"], continua=True)""")
+
+md(r"""### 13.5. Tamanho médio por região anatômica
+Tabela ordenada da maior para a menor média de tamanho, identificando os
+locais mais acometidos por lesões maiores.""")
+code(r"""tam_regiao = (df_lesao.dropna(subset=["regiao_grupo","tamanho_cm"])
+              .groupby("regiao_grupo", observed=True)["tamanho_cm"]
+              .agg(["count","mean","std","median",
+                    lambda x: x.quantile(.25), lambda x: x.quantile(.75)]))
+tam_regiao.columns = ["n","média","desvio","mediana","q1","q3"]
+tam_regiao = tam_regiao.sort_values("média", ascending=False).round(2)
+print(tam_regiao)
+
+fig, ax = plt.subplots(figsize=(9, 5))
+o = tam_regiao.index.tolist()
+sns.barplot(x=tam_regiao["média"], y=o, ax=ax, palette="rocket_r")
+for i, (m, n) in enumerate(zip(tam_regiao["média"], tam_regiao["n"])):
+    ax.text(m+0.03, i, f"{m:.2f} cm  (n={n})", va="center", fontsize=9)
+ax.set(title="Tamanho médio da lesão por região anatômica",
+       xlabel="Tamanho médio (cm)", ylabel="")
+salvar_fig("F4_tamanho_medio_por_regiao.png"); plt.show()""")
+
+md(r"""### 13.6. Local mais acometido — distribuição geral das lesões
+Frequência absoluta por região anatômica, independente do tamanho.""")
+code(r"""freq_regiao = df_lesao["regiao_grupo"].value_counts(dropna=False)
+pct_regiao = (freq_regiao/freq_regiao.sum()*100).round(1)
+tab_local = pd.DataFrame({"n": freq_regiao, "%": pct_regiao})
+print(tab_local)
+
+fig, ax = plt.subplots(figsize=(9, 5))
+sns.barplot(x=freq_regiao.values, y=freq_regiao.index.astype(str),
+            ax=ax, palette="mako")
+for i, (v, p) in enumerate(zip(freq_regiao.values, pct_regiao.values)):
+    ax.text(v+0.5, i, f"{v} ({p}%)", va="center", fontsize=9)
+ax.set(title="Frequência de lesões por região anatômica",
+       xlabel="Lesões", ylabel="")
+salvar_fig("F5_freq_regiao.png"); plt.show()""")
+
+# =================================================================== Perfil 3 subtipos
+md(r"""## 14. Perfil clínico-patológico dos três subtipos histológicos
+
+Esta seção apresenta os três grupos de subtipo (Baixo risco, Misto, Alto risco)
+lado a lado, com média de tamanho da lesão, frequência de ulceração, margens
+comprometidas, invasão perineural e linfovascular, e as três regiões anatômicas
+mais frequentes. Permite comparação direta entre os subtipos.""")
+code(r"""def percentual(serie, valor):
+    s = serie.dropna()
+    return round((s == valor).mean()*100, 1) if len(s) else np.nan
+
+perfil = []
+for sub in ORDEM_SUB:
+    g = df_lesao[df_lesao["subtipo_3cat"] == sub]
+    if len(g) == 0: continue
+    tam_g = g["tamanho_cm"].dropna()
+    top_regioes = g["regiao_grupo"].value_counts().head(3)
+    top_str = "; ".join(f"{k} ({v})" for k, v in top_regioes.items())
+    grau_codes = g["grau_infiltracao"].cat.codes.replace(-1, np.nan)
+    pct_profundo = round(((grau_codes >= 2).sum() /
+                          grau_codes.notna().sum() * 100), 1) \
+                   if grau_codes.notna().sum() else np.nan
+    perfil.append({
+        "Subtipo": sub,
+        "n lesões": len(g),
+        "Tamanho médio (cm)": round(tam_g.mean(), 2) if len(tam_g) else np.nan,
+        "Tamanho mediana (cm)": round(tam_g.median(), 2) if len(tam_g) else np.nan,
+        "% Ulceração": percentual(g["ulceracao"], "Sim"),
+        "% Margens comprometidas": percentual(g["margem_comprometida"], "Comprometida"),
+        "% Invasão perineural": percentual(g["inv_perineural"], "Sim"),
+        "% Invasão linfovascular": percentual(g["inv_linfovascular"], "Sim"),
+        "% Profundidade ≥ Hipoderme": pct_profundo,
+        "Top 3 regiões": top_str,
+    })
+perfil_df = pd.DataFrame(perfil).set_index("Subtipo")
+perfil_df.to_excel("perfil_subtipos.xlsx")
+print("Perfil exportado: perfil_subtipos.xlsx\n")
+perfil_df""")
+
+code(r"""# gráfico comparativo dos 3 subtipos (percentuais lado a lado)
+metricas = ["% Ulceração", "% Margens comprometidas",
+            "% Invasão perineural", "% Profundidade ≥ Hipoderme"]
+plot_df = perfil_df[metricas].reset_index().melt(id_vars="Subtipo",
+                                                 var_name="Indicador",
+                                                 value_name="Percentual")
+
+fig, ax = plt.subplots(figsize=(11, 5))
+sns.barplot(data=plot_df, x="Indicador", y="Percentual",
+            hue="Subtipo", ax=ax, palette=["#55A868","#DD8452","#C44E52"])
+for cont in ax.containers:
+    ax.bar_label(cont, fmt="%.1f", fontsize=9, padding=2)
+ax.set(title="Comparação dos três subtipos — indicadores clínico-patológicos",
+       ylabel="% das lesões com o indicador", xlabel="")
+ax.legend(title="Subtipo", loc="upper right")
+plt.xticks(rotation=10, ha="right")
+salvar_fig("F6_perfil_3subtipos.png"); plt.show()""")
+
+code(r"""# gráfico do tamanho médio por subtipo
+tam_sub = (df_lesao.dropna(subset=["subtipo_3cat","tamanho_cm"])
+                   .groupby("subtipo_3cat", observed=True)["tamanho_cm"]
+                   .agg(["count","mean","std","median"]))
+tam_sub.columns = ["n","média","desvio","mediana"]
+tam_sub = tam_sub.round(2)
+print(tam_sub)
+
+fig, ax = plt.subplots(figsize=(7, 4))
+sns.boxplot(data=df_lesao.dropna(subset=["subtipo_3cat","tamanho_cm"]),
+            x="subtipo_3cat", y="tamanho_cm", order=ORDEM_SUB,
+            ax=ax, palette=["#55A868","#DD8452","#C44E52"], width=.5)
+sns.stripplot(data=df_lesao.dropna(subset=["subtipo_3cat","tamanho_cm"]),
+              x="subtipo_3cat", y="tamanho_cm", order=ORDEM_SUB,
+              ax=ax, color="black", alpha=.25, size=2)
+ax.set(title="Tamanho da lesão por subtipo histológico",
+       xlabel="", ylabel="Tamanho (cm)")
+salvar_fig("F7_tamanho_por_subtipo.png"); plt.show()""")
+
 # =================================================================== Tabela mestre
-md(r"""## 13. Tabela-mestre de p-valores
+md(r"""## 15. Tabela-mestre de p-valores
 
 Resumo consolidado de todos os testes realizados, com indicação dos resultados
 significativos.""")
 code(r"""master = pd.DataFrame(RESULTADOS)
 master["bloco"] = pd.Categorical(master["bloco"],
-    categories=["Descritivo","Margens","A","B","C","D","E"], ordered=True)
+    categories=["Descritivo","Margens","A","B","C","D","E","F"], ordered=True)
 master = master.sort_values(["bloco","codigo"]).reset_index(drop=True)
 master.to_excel("resumo_pvalores.xlsx", index=False)
 print(f"Total de testes: {len(master)}")
